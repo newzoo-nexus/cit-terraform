@@ -145,13 +145,6 @@ You only need Terraform locally to run `terraform fmt`/`validate` or to plan
 during an import; applies to test and prod happen in CI only. The version is
 pinned in `.terraform-version` (works with tfenv).
 
-## Getting started
-
-The one-time setup (dev project, state buckets, service accounts, Workload
-Identity Federation, GitHub settings) is in [docs/setup.md](docs/setup.md).
-Then follow the rollout in the plan: pilot one ecosystem with
-`scripts/bootstrap_catalog.py`, then new scrapers, then the rest.
-
 ## Open items
 
 - [ ] Confirm the BigQuery location of the existing datasets and set
