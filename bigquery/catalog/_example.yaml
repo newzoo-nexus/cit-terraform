@@ -1,0 +1,24 @@
+# Example catalog file. Files starting with "_" are ignored by Terraform.
+# Real catalog files are named after the dataset (ecosystem): steam.yaml,
+# xbox.yaml, playstation.yaml, ... Generate the first version of one from what
+# already exists in BigQuery with:  python scripts/bootstrap_catalog.py steam
+#
+# description: Steam store and player data      # optional, dataset description
+
+tables:
+  store_prices:
+    schema: _example/store_prices.json   # relative to bigquery/schemas/
+    partition_field: scraped_at          # optional; DAY partitioning by default
+    # partition_type: MONTH              # optional: HOUR, DAY, MONTH, YEAR
+    # clustering: [app_id]               # optional
+    # description: Daily store prices    # optional
+    envs: [test, prod]
+  player_counts:
+    schema: _example/player_counts.json
+    partition_field: scraped_at
+    envs: [test]                         # not promoted yet
+
+views:
+  store_prices_latest:
+    sql: _example/store_prices_latest.sql   # relative to bigquery/views/; ${project} is filled in per env
+    envs: [test]

@@ -1,0 +1,29 @@
+# Who is who, per environment. Read by every stack.
+#
+# storage/buckets.yaml and secrets/secrets.yaml refer to these names
+# (writers: [composer]); each name resolves to this env's members. Changing a
+# list here changes access everywhere that name is used, in that env.
+#
+#   developers           the team: write in dev, read in test and prod
+#                        (TODO(close-manual-access): plus their manual admin
+#                        access to test and prod, for now; docs/setup.md step 8)
+#   composer             the service account Airflow runs as
+#   secret_value_admins  may add secret values in test/prod without reading them
+#
+# Empty lists grant nothing, so placeholders are safe. Members use IAM syntax:
+# group:..., user:..., serviceAccount:...
+
+dev:
+  developers: []          # TODO: ["group:<data-team>@newzoo.com"]
+  composer: []            # no Airflow in dev
+  secret_value_admins: [] # in dev, developers add values themselves
+
+test:
+  developers: []          # TODO: ["group:<data-team>@newzoo.com"]
+  composer: []            # TODO: ["serviceAccount:<composer-sa>@newzoo-nexus-raw-test.iam.gserviceaccount.com"]
+  secret_value_admins: [] # TODO: ["group:<data-team-leads>@newzoo.com"]
+
+prod:
+  developers: []          # TODO: ["group:<data-team>@newzoo.com"]
+  composer: []            # TODO: ["serviceAccount:<composer-sa>@newzoo-nexus-raw.iam.gserviceaccount.com"]
+  secret_value_admins: [] # TODO: ["group:<data-team-leads>@newzoo.com"]

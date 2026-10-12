@@ -1,0 +1,25 @@
+# GCS buckets, for every environment. Read by environments/<env>/storage/.
+#
+# Each key becomes the bucket "<project>-<key>" in each env listed in `envs`:
+#   raw-dumps -> newzoo-nexus-raw-dev-raw-dumps, newzoo-nexus-raw-test-raw-dumps,
+#                newzoo-nexus-raw-raw-dumps
+# Promote a bucket by adding an env to `envs`; remove one to retire it there.
+#
+# Fields (all optional except envs):
+#   envs               [dev, test, prod]: where the bucket exists
+#   writers / readers  principal names from environments/principals.yaml
+#                      (composer, developers, ...) or literal IAM members
+#                      ("serviceAccount:x@y.iam.gserviceaccount.com")
+#   delete_after_days  delete objects older than this (dev default: 14)
+#   versioning         keep the 5 newest old versions of overwritten objects
+#   storage_class, location, labels
+#   name               only to adopt an existing bucket with another name:
+#                      a single name for a one-env bucket, otherwise one per
+#                      env, e.g. name: {test: old-test-bucket, prod: old-bucket}
+#
+# Keys starting with "_" are examples and are ignored.
+
+_raw-dumps:
+  envs: [dev, test]
+  writers: [composer]
+  delete_after_days: 90

@@ -1,0 +1,22 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+# .terraform.lock.hcl IS committed, so every run uses the same provider build.
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
