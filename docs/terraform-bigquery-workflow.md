@@ -86,6 +86,8 @@ views:
     envs: [test]
 ```
 
+Partitioning: `partition_field` partitions by that column (`partition_type` defaults to `DAY`); `partition_type` on its own (e.g. `partition_type: DAY`) means ingestion-time partitioning (`_PARTITIONTIME`), which many existing tables use. `partition_expiration_days` and `require_partition_filter` are optional. Changing a table's partitioning recreates it, so the bootstrap must capture it exactly.
+
 The test and prod configs read every catalog file and keep only the tables whose `envs` include them. Prod sets `deletion_protection = true`; test does not.
 
 ### Schemas

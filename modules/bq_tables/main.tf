@@ -18,14 +18,18 @@ locals {
 
   tables = merge([
     for ds, c in local.catalogs : {
+      # partition_field set: column partitioning (type defaults to DAY).
+      # Only partition_type set: ingestion-time partitioning (_PARTITIONTIME).
       for name, cfg in try(c.tables, {}) : "${ds}.${name}" => {
-        dataset         = ds
-        name            = name
-        schema          = cfg.schema
-        description     = try(cfg.description, null)
-        partition_field = try(cfg.partition_field, null)
-        partition_type  = try(cfg.partition_type, "DAY")
-        clustering      = try(cfg.clustering, null)
+        dataset                  = ds
+        name                     = name
+        schema                   = cfg.schema
+        description              = try(cfg.description, null)
+        partition_field          = try(cfg.partition_field, null)
+        partition_type           = try(cfg.partition_type, null)
+        partition_expiration_ms  = try(cfg.partition_expiration_days * 86400000, null)
+        require_partition_filter = try(cfg.require_partition_filter, null)
+        clustering               = try(cfg.clustering, null)
       }
       if var.create_tables && contains(try(cfg.envs, []), var.env)
     }
@@ -50,7 +54,9 @@ locals {
     for ds, c in local.catalogs : concat(
       [for k in keys(c) : "${ds}: unknown top-level key '${k}'" if !contains(["description", "tables", "views"], k)],
       flatten([for name, cfg in try(c.tables, {}) : concat(
-        [for k in keys(cfg) : "${ds}.${name}: unknown table field '${k}'" if !contains(["schema", "description", "partition_field", "partition_type", "clustering", "envs"], k)],
+        [for k in keys(cfg) : "${ds}.${name}: unknown table field '${k}'" if !contains(["schema", "description", "partition_field", "partition_type", "partition_expiration_days", "require_partition_filter", "clustering", "envs"], k)],
+        [for t in compact([try(cfg.partition_type, null)]) : "${ds}.${name}: partition_type must be HOUR, DAY, MONTH or YEAR, got '${t}'" if !contains(["HOUR", "DAY", "MONTH", "YEAR"], t)],
+        can(cfg.partition_expiration_days) && !can(cfg.partition_field) && !can(cfg.partition_type) ? ["${ds}.${name}: partition_expiration_days needs partition_field or partition_type"] : [],
         [for e in try(cfg.envs, []) : "${ds}.${name}: unknown env '${e}'" if !contains(local.envs, e)],
       )]),
       flatten([for name, cfg in try(c.views, {}) : concat(
@@ -109,11 +115,14 @@ resource "google_bigquery_table" "table" {
   deletion_protection = var.deletion_protection
   labels              = var.labels
 
+  require_partition_filter = each.value.require_partition_filter
+
   dynamic "time_partitioning" {
-    for_each = each.value.partition_field == null ? [] : [each.value]
+    for_each = each.value.partition_field == null && each.value.partition_type == null ? [] : [each.value]
     content {
-      type  = time_partitioning.value.partition_type
-      field = time_partitioning.value.partition_field
+      type          = coalesce(time_partitioning.value.partition_type, "DAY")
+      field         = time_partitioning.value.partition_field # null = ingestion time
+      expiration_ms = time_partitioning.value.partition_expiration_ms
     }
   }
 }

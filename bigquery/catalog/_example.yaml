@@ -9,7 +9,10 @@ tables:
   store_prices:
     schema: _example/store_prices.json   # relative to bigquery/schemas/
     partition_field: scraped_at          # optional; DAY partitioning by default
-    # partition_type: MONTH              # optional: HOUR, DAY, MONTH, YEAR
+    # partition_type: MONTH              # optional: HOUR, DAY, MONTH, YEAR. Without
+    #                                    #   partition_field: ingestion-time partitioning
+    # partition_expiration_days: 365     # optional; drop partitions older than this
+    # require_partition_filter: true     # optional
     # clustering: [app_id]               # optional
     # description: Daily store prices    # optional
     envs: [test, prod]

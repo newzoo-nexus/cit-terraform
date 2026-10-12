@@ -46,10 +46,16 @@ def build_table(client: bigquery.Client, project: str, dataset: str, name: str, 
     table = bigquery.Table(f"{project}.{dataset}.{name}")
     table.schema = client.schema_from_json(str(SCHEMAS_DIR / cfg["schema"]))
     table.description = cfg.get("description")
-    if cfg.get("partition_field"):
+    # partition_field: column partitioning; only partition_type: ingestion time.
+    if cfg.get("partition_field") or cfg.get("partition_type"):
+        days = cfg.get("partition_expiration_days")
         table.time_partitioning = bigquery.TimePartitioning(
-            type_=cfg.get("partition_type", "DAY"), field=cfg["partition_field"]
+            type_=cfg.get("partition_type", "DAY"),
+            field=cfg.get("partition_field"),
+            expiration_ms=days * 86_400_000 if days else None,
         )
+    if cfg.get("require_partition_filter") is not None:
+        table.require_partition_filter = cfg["require_partition_filter"]
     if cfg.get("clustering"):
         table.clustering_fields = cfg["clustering"]
     return table

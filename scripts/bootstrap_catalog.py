@@ -56,10 +56,18 @@ def table_entry(dataset: str, table: bigquery.Table, envs: list[str]) -> dict:
     if tp is not None:
         if tp.field:
             entry["partition_field"] = tp.field
+            if tp.type_ and tp.type_ != "DAY":
+                entry["partition_type"] = tp.type_
         else:
-            print(f"  ! {table.table_id}: ingestion-time partitioning is not supported by the module yet")
-        if tp.type_ and tp.type_ != "DAY":
-            entry["partition_type"] = tp.type_
+            # Ingestion-time partitioning: partition_type without partition_field.
+            entry["partition_type"] = tp.type_ or "DAY"
+        if tp.expiration_ms:
+            days, rest = divmod(int(tp.expiration_ms), 86_400_000)
+            if rest:
+                print(f"  ! {table.table_id}: partition expiration {tp.expiration_ms} ms is not whole days; rounded")
+            entry["partition_expiration_days"] = max(days, 1)
+    if table.require_partition_filter:
+        entry["require_partition_filter"] = True
     if table.clustering_fields:
         entry["clustering"] = list(table.clustering_fields)
     if table.description:
