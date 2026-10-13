@@ -16,6 +16,10 @@ tables:
     # clustering: [app_id]               # optional
     # description: Daily store prices    # optional
     envs: [test, prod]
+    # overrides:                         # temporary: changes tried before prod, per env.
+    #   test:                            # Also applies to dev. Promote by moving the
+    #     schema: _example/store_prices.test.json    # fields into the entry above.
+    #     clustering: [app_id]
   player_counts:
     schema: _example/player_counts.json
     partition_field: scraped_at

@@ -60,6 +60,11 @@ view) show the format. Files starting with `_` are ignored by Terraform.
 4. Run the DAG on test as today. When it is ready, a second PR changes `envs`
    to `[test, prod]`; after approval CI applies prod.
 
+To change a table or view that is already in prod, add a temporary
+`overrides.test` to its entry (e.g. pointing at `player_counts.test.json`):
+test and dev get the change, prod keeps the entry. A second PR moves it into
+the entry to promote it. See the SOP "Change an existing table or view".
+
 Views work the same way (`python scripts/dev_table.py steam.store_prices_latest`);
 promote a view together with, or after, the tables it reads.
 

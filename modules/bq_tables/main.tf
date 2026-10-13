@@ -16,11 +16,40 @@ locals {
     trimsuffix(f, ".yaml") => yamldecode(file("${var.definitions_dir}/catalog/${f}"))
   }
 
+  # A catalog entry describes the object as it is in prod. `overrides` holds
+  # changes being tried out before prod, per environment:
+  #   overrides:
+  #     test: { schema: steam/player_counts.test.json }
+  # An env's override also applies to the envs before it in the pipeline
+  # (local.envs order), so dev gets what test gets; the closest env wins.
+  # Prod is never overridden. To promote a change, move its fields into the
+  # entry and delete the override; to abandon it, just delete the override.
+  override_order = [for e in reverse(local.envs) : e if e != "prod" && index(local.envs, e) >= index(local.envs, var.env)]
+
+  table_cfgs = {
+    for ds, c in local.catalogs : ds => {
+      for name, base in try(c.tables, {}) : name => merge(concat([base], [for e in local.override_order : try(base.overrides[e], null)])...)
+    }
+  }
+  view_cfgs = {
+    for ds, c in local.catalogs : ds => {
+      for name, base in try(c.views, {}) : name => merge(concat([base], [for e in local.override_order : try(base.overrides[e], null)])...)
+    }
+  }
+
+  # Objects with an override for this env; listed as a warning on every plan.
+  active_overrides = sort(flatten([
+    for ds, c in local.catalogs : [
+      for name, base in merge(try(c.tables, {}), try(c.views, {})) : "${ds}.${name}"
+      if try(base.overrides[var.env], null) != null
+    ]
+  ]))
+
   tables = merge([
-    for ds, c in local.catalogs : {
+    for ds, cfgs in local.table_cfgs : {
       # partition_field set: column partitioning (type defaults to DAY).
       # Only partition_type set: ingestion-time partitioning (_PARTITIONTIME).
-      for name, cfg in try(c.tables, {}) : "${ds}.${name}" => {
+      for name, cfg in cfgs : "${ds}.${name}" => {
         dataset                  = ds
         name                     = name
         schema                   = cfg.schema
@@ -36,8 +65,8 @@ locals {
   ]...)
 
   views = merge([
-    for ds, c in local.catalogs : {
-      for name, cfg in try(c.views, {}) : "${ds}.${name}" => {
+    for ds, cfgs in local.view_cfgs : {
+      for name, cfg in cfgs : "${ds}.${name}" => {
         dataset     = ds
         name        = name
         sql         = cfg.sql
@@ -49,19 +78,31 @@ locals {
 
   # Catalog mistakes that would otherwise be silently ignored (a misspelt
   # field, an unknown env). Checked by the output preconditions in outputs.tf.
-  envs = ["dev", "test", "prod"]
+  envs         = ["dev", "test", "prod"] # pipeline order
+  overridable  = ["dev", "test"]
+  table_fields = ["schema", "description", "partition_field", "partition_type", "partition_expiration_days", "require_partition_filter", "clustering"]
+  view_fields  = ["sql", "description"]
   catalog_errors = flatten([
     for ds, c in local.catalogs : concat(
       [for k in keys(c) : "${ds}: unknown top-level key '${k}'" if !contains(["description", "tables", "views"], k)],
       flatten([for name, cfg in try(c.tables, {}) : concat(
-        [for k in keys(cfg) : "${ds}.${name}: unknown table field '${k}'" if !contains(["schema", "description", "partition_field", "partition_type", "partition_expiration_days", "require_partition_filter", "clustering", "envs"], k)],
-        [for t in compact([try(cfg.partition_type, null)]) : "${ds}.${name}: partition_type must be HOUR, DAY, MONTH or YEAR, got '${t}'" if !contains(["HOUR", "DAY", "MONTH", "YEAR"], t)],
-        can(cfg.partition_expiration_days) && !can(cfg.partition_field) && !can(cfg.partition_type) ? ["${ds}.${name}: partition_expiration_days needs partition_field or partition_type"] : [],
+        [for k in keys(cfg) : "${ds}.${name}: unknown table field '${k}'" if !contains(concat(local.table_fields, ["envs", "overrides"]), k)],
+        [for e, o in try({ for e, o in cfg.overrides : e => o }, {}) : "${ds}.${name}: overrides: '${e}' can't be overridden (only ${join(", ", local.overridable)}; the entry itself is prod)" if !contains(local.overridable, e)],
+        flatten([for e, o in try({ for e, o in cfg.overrides : e => o }, {}) : [for k in try(keys(o), []) : "${ds}.${name}: overrides.${e}: unknown or unsupported field '${k}'" if !contains(local.table_fields, k)]]),
         [for e in try(cfg.envs, []) : "${ds}.${name}: unknown env '${e}'" if !contains(local.envs, e)],
+        [for e, o in try({ for e, o in cfg.overrides : e => o }, {}) : "${ds}.${name}: has overrides.${e} but is not in ${e} (add it to envs)" if e != "dev" && contains(local.overridable, e) && !contains(try(cfg.envs, []), e)],
+      )]),
+      # Checked on the settings this env actually uses (overrides applied).
+      flatten([for name, cfg in local.table_cfgs[ds] : concat(
+        [for t in compact([try(cfg.partition_type, null)]) : "${ds}.${name}: partition_type must be HOUR, DAY, MONTH or YEAR, got '${t}'" if !contains(["HOUR", "DAY", "MONTH", "YEAR"], t)],
+        try(cfg.partition_expiration_days, null) != null && try(cfg.partition_field, null) == null && try(cfg.partition_type, null) == null ? ["${ds}.${name}: partition_expiration_days needs partition_field or partition_type"] : [],
       )]),
       flatten([for name, cfg in try(c.views, {}) : concat(
-        [for k in keys(cfg) : "${ds}.${name}: unknown view field '${k}'" if !contains(["sql", "description", "envs"], k)],
+        [for k in keys(cfg) : "${ds}.${name}: unknown view field '${k}'" if !contains(concat(local.view_fields, ["envs", "overrides"]), k)],
+        [for e, o in try({ for e, o in cfg.overrides : e => o }, {}) : "${ds}.${name}: overrides: '${e}' can't be overridden (only ${join(", ", local.overridable)}; the entry itself is prod)" if !contains(local.overridable, e)],
+        flatten([for e, o in try({ for e, o in cfg.overrides : e => o }, {}) : [for k in try(keys(o), []) : "${ds}.${name}: overrides.${e}: unknown or unsupported field '${k}'" if !contains(local.view_fields, k)]]),
         [for e in try(cfg.envs, []) : "${ds}.${name}: unknown env '${e}'" if !contains(local.envs, e)],
+        [for e, o in try({ for e, o in cfg.overrides : e => o }, {}) : "${ds}.${name}: has overrides.${e} but is not in ${e} (add it to envs)" if e != "dev" && contains(local.overridable, e) && !contains(try(cfg.envs, []), e)],
       )]),
     )
   ])

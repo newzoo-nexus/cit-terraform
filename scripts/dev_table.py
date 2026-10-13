@@ -7,7 +7,8 @@
 
 Reads the same catalog entry and schema file Terraform uses, so the table
 looks the same in dev, test and prod. The entry's `envs` list is ignored: it
-only controls test and prod. Tables and views expire after --expiration-days
+only controls test and prod. An entry's `overrides` are applied (dev gets
+what test gets, unless overrides.dev says otherwise). Tables and views expire after --expiration-days
 (14 by default); rerunning the script pushes the expiry out again.
 
 Without --recreate, an existing table gets its schema updated in place, which
@@ -27,7 +28,7 @@ import sys
 from google.api_core.exceptions import BadRequest, NotFound
 from google.cloud import bigquery
 
-from catalog import PROJECTS, SCHEMAS_DIR, VIEWS_DIR, load_catalog, render_view_sql
+from catalog import PROJECTS, SCHEMAS_DIR, VIEWS_DIR, effective, load_catalog, render_view_sql
 
 
 def parse_args() -> argparse.Namespace:
@@ -110,9 +111,9 @@ def main() -> int:
             raise SystemExit(f"'{ref}' should be DATASET.NAME")
         cat = load_catalog(dataset)
         if name in cat["tables"]:
-            resolved.append((False, dataset, name, cat["tables"][name]))
+            resolved.append((False, dataset, name, effective(cat["tables"][name], "dev")))
         elif name in cat["views"]:
-            resolved.append((True, dataset, name, cat["views"][name]))
+            resolved.append((True, dataset, name, effective(cat["views"][name], "dev")))
         else:
             raise SystemExit(f"'{name}' is not a table or view in bigquery/catalog/{dataset}.yaml")
     resolved.sort(key=lambda r: r[0])

@@ -17,3 +17,12 @@ output "views" {
   description = "Views managed in this environment, as dataset.view."
   value       = sort(keys(google_bigquery_table.view))
 }
+
+# A reminder, not an error: every plan lists the overrides still active in its
+# env, waiting to be promoted to prod or removed.
+check "overrides" {
+  assert {
+    condition     = length(local.active_overrides) == 0
+    error_message = "overrides.${var.env} in use (promote to prod or remove when done): ${join(", ", local.active_overrides)}"
+  }
+}
