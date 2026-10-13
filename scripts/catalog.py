@@ -20,6 +20,22 @@ PROJECTS = {
 }
 
 
+# Pipeline order. An entry's `overrides.<env>` applies to that env and the ones
+# before it (so dev gets what test gets); the closest env wins. Prod is the
+# entry itself and is never overridden. Same rule as modules/bq_tables.
+ENVS = ("dev", "test", "prod")
+
+
+def effective(cfg: dict, env: str) -> dict:
+    """A catalog entry as `env` sees it, with its overrides applied."""
+    overrides = cfg.get("overrides") or {}
+    result = dict(cfg)
+    for e in reversed(ENVS[ENVS.index(env):]):
+        if e != "prod":
+            result.update(overrides.get(e) or {})
+    return result
+
+
 def load_catalog(dataset: str) -> dict:
     path = CATALOG_DIR / f"{dataset}.yaml"
     if not path.exists():

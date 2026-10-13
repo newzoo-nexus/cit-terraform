@@ -191,7 +191,7 @@ A scraper moves from dev to test to prod through two PRs in the infra repo; loca
 4. **Promote.** A second PR changes `envs` to `[test, prod]`. After approval, CI applies prod and the DAG is switched to `newzoo-nexus-raw`.
 5. **Retire.** Remove an environment from `envs`, or delete the entry. The plan shows the table being destroyed. In prod, deletion protection blocks the apply until someone deliberately turns it off for that table.
 
-Schema changes follow steps 2–4. Adding nullable columns is applied in place; changing a type or removing a column shows up in the plan as a replace, which is the warning to plan a migration.
+Changing a table or view that is already in prod uses a temporary override on its catalog entry instead of a second entry; see the SOP "Change an existing table or view".
 
 Views follow the same steps: add the SQL template and a catalog entry, create it in dev with `dev_table.py steam.store_prices_latest`, then promote it with its tables.
 
@@ -229,6 +229,7 @@ Every change takes the same path: PR (CI comments a plan per environment), merge
 | New bucket | `storage/buckets.yaml` | Nothing |
 | New secret | `secrets/secrets.yaml` | Add the value in each env |
 | Promote to prod | Add `prod` to the entry's `envs` | Approve the prod run; for a secret, add the prod value |
+| Change a table or view that is in prod | An `overrides.test` on the entry, then a second PR moving it into the entry | Approve the prod run with the second PR |
 | Rotate a secret value | Nothing (no PR) | Add a new version in Secret Manager |
 | Give a person or service access | `environments/principals.yaml`, or the entry's `readers` / `writers` / `accessors` | Nothing |
 | Retire from an environment | Remove the env from `envs` | Check the destroy in the plan first |
@@ -270,6 +271,41 @@ steam-api-key:
 2. Open a PR. The prod plan shows exactly that addition; dev and test show no changes.
 3. Merge, check the prod plan in the plan-prod job, and approve hold-prod.
 4. For a secret, add the prod value in Secret Manager.
+
+### Change an existing table or view
+
+A catalog entry describes the object as it is in prod. To try a change in test first, put it under the entry's `overrides`, keyed by environment. `overrides.test` replaces the entry's fields in test, and also in dev (an override applies to its environment and the ones before it in the pipeline, dev → test → prod; an `overrides.dev` would win in dev). Prod is the entry itself and is never overridden. No second entry, no second table name, and a future environment is just another key.
+
+```yaml
+tables:
+  player_counts:
+    schema: steam/player_counts.json
+    partition_field: scraped_at
+    envs: [test, prod]
+    overrides:                                   # temporary: being tried before prod
+      test:
+        schema: steam/player_counts.test.json    # copy of the schema with the change
+        clustering: [app_id]
+views:
+  store_prices_latest:
+    sql: steam/store_prices_latest.sql
+    envs: [test, prod]
+    overrides:
+      test:
+        sql: steam/store_prices_latest.test.sql
+```
+
+1. **Try it.** Copy the schema or SQL to `<name>.test.json` / `<name>.test.sql`, make the change there, and add `overrides.test` pointing at it (plus any changed settings: `description`, `partition_*`, `require_partition_filter`, `clustering`). Setting a field to `null` removes it in test. Run `dev_table.py` to get it in dev.
+2. **PR and merge.** The test plan shows the change; prod shows none. From then on every plan warns which overrides are still active in its environment, so none is forgotten.
+3. **Promote.** A second PR moves the change into the entry: rename `<name>.test.json` over `<name>.json` (or the `.sql`), move any settings up, delete the override. Test shows no changes; prod shows the change. Approve as usual.
+4. **Abandon.** Delete the override and the `.test` file instead; test goes back to the prod version.
+
+Check what the plan does before merging either PR:
+
+- **In place:** adding NULLABLE columns, REQUIRED → NULLABLE, descriptions, view SQL. Data is kept.
+- **Replace (drop and recreate):** removing or renaming a column, changing a type, changing partitioning. In test the table's data is lost, which is usually fine. In prod `deletion_protection` blocks the apply: plan a migration instead (for example, build the new shape with `CREATE TABLE ... AS SELECT` under a new name and switch the DAG, or reshape the prod table by hand and then make the catalog match so the plan is clean).
+
+`scripts/bootstrap_catalog.py` uses the same mechanism: where test and prod differ today, it writes the prod version as the entry and the test version as `overrides.test`, so both import plans start clean.
 
 ### Rotate a secret value
 

@@ -14,9 +14,11 @@ Writes:
   environments/{test,prod}/bigquery/imports_steam.tf
                                          import blocks for everything that exists
 
-Differences between test and prod (schema, partitioning, clustering, view SQL)
-are printed as warnings: settle them before the first apply, so `terraform
-plan` shows no changes. Existing files are not overwritten unless --force.
+Where test and prod differ (schema, partitioning, clustering, view SQL), the
+entry describes prod and `overrides: {test: ...}` holds what test has, with the test
+schema or SQL in <name>.test.json / <name>.test.sql, so both plans show no
+changes. Each is printed; settle them later (promote or drop the override).
+Existing files are not overwritten unless --force.
 
 This is a one-off helper for the rollout; after the import, the catalog is
 edited by hand.
@@ -126,20 +128,30 @@ def main() -> int:
 
         if src.table_type == "VIEW":
             templates = {env: templatize_view_sql(t.view_query, PROJECTS[env]) for env, t in present.items()}
-            if len(set(templates.values())) > 1:
-                print(f"  ! {name}: view SQL differs between test and prod; using {source_env}")
             write(VIEWS_DIR / ds / f"{name}.sql", templates[source_env].rstrip() + "\n", args.force)
             views[name] = {"sql": f"{ds}/{name}.sql", "envs": envs}
+            if len(set(templates.values())) > 1:
+                print(f"  ! {name}: view SQL differs between test and prod; overrides.test written")
+                write(VIEWS_DIR / ds / f"{name}.test.sql", templates["test"].rstrip() + "\n", args.force)
+                views[name]["overrides"] = {"test": {"sql": f"{ds}/{name}.test.sql"}}
             resource = "view"
         elif src.table_type == "TABLE":
             schemas = {env: schema_json(t) for env, t in present.items()}
-            if len({json.dumps(s, sort_keys=True) for s in schemas.values()}) > 1:
-                print(f"  ! {name}: schema differs between test and prod; using {source_env}")
             entries = {env: table_entry(ds, t, envs) for env, t in present.items()}
-            if len({json.dumps(e, sort_keys=True) for e in entries.values()}) > 1:
-                print(f"  ! {name}: partitioning/clustering/description differ; using {source_env}")
             write(SCHEMAS_DIR / ds / f"{name}.json", json.dumps(schemas[source_env], indent=2) + "\n", args.force)
             tables[name] = entries[source_env]
+            override = {}
+            if len({json.dumps(s, sort_keys=True) for s in schemas.values()}) > 1:
+                write(SCHEMAS_DIR / ds / f"{name}.test.json", json.dumps(schemas["test"], indent=2) + "\n", args.force)
+                override["schema"] = f"{ds}/{name}.test.json"
+            if len(entries) > 1:
+                prod_e, test_e = entries["prod"], entries["test"]
+                for key in sorted((set(prod_e) | set(test_e)) - {"schema", "envs"}):
+                    if prod_e.get(key) != test_e.get(key):
+                        override[key] = test_e.get(key)  # None (null) removes the prod setting in test
+            if override:
+                print(f"  ! {name}: test differs from prod ({', '.join(override)}); overrides.test written")
+                tables[name]["overrides"] = {"test": override}
             resource = "table"
         else:
             print(f"  ! {name}: {src.table_type} is not managed by the module; skipped")
